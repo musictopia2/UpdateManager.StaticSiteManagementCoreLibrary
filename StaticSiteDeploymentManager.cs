@@ -12,10 +12,6 @@ public class StaticSiteDeploymentManager(
     public async Task RunAsync(
         CancellationToken cancellationToken = default)
     {
-        int membershipUpdates =
-            await hostMembership.SynchronizeAsync(cancellationToken);
-
-        // Membership synchronization may have changed saved flags.
         var sites = await context.GetStaticSitesAsync();
 
         var activeSites = sites
@@ -24,13 +20,6 @@ public class StaticSiteDeploymentManager(
                 site => site.DisplayName,
                 StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        if (activeSites.Any(site => site.HostUpdatePending))
-        {
-            throw new InvalidOperationException(
-                "There are unfinished host registrations. " +
-                "Run the registration app before deploying updates.");
-        }
 
         // Update project references before inspecting source changes.
         foreach (var site in activeSites)
@@ -46,13 +35,23 @@ public class StaticSiteDeploymentManager(
             }
         }
 
-        if (activeSites.Count > 0)
+        List<StaticSiteModel> preparedSites = [];
+
+        foreach (var site in activeSites)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (await preparation.PrepareAsync(site))
+            {
+                preparedSites.Add(site);
+            }
+        }
 
-            // Inspect after updates so selection reflects current references.
-            var packages =
-                await packageInspector.GetRequiredManagedPackagesAsync();
+        // Only changed or unfinished submissions need packages.
+        // Allocated versions remain pending if publication must be retried.
+        if (preparedSites.Count > 0)
+        {
+            var packages = await packageInspector.GetRequiredManagedPackagesAsync(
+                preparedSites.Select(site => site.ProjectPath));
 
             await packagePublication.EnsurePublishedAsync(
                 packages,
@@ -60,27 +59,19 @@ public class StaticSiteDeploymentManager(
         }
 
         int submittedCount = 0;
-
-        foreach (var site in activeSites)
+        foreach (var site in preparedSites)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            bool prepared = await preparation.PrepareAsync(site);
-
-            if (!prepared)
-            {
-                continue;
-            }
-
-            bool submitted = await submission.SubmitAsync(
-                site,
-                cancellationToken);
-
-            if (submitted)
+            if (await submission.SubmitAsync(site, cancellationToken))
             {
                 submittedCount++;
             }
         }
+
+        // Publish membership after source submission, before requesting builds.
+        // This also resumes host updates and handles disabled sites.
+        int membershipUpdates =
+            await hostMembership.SynchronizeAsync(cancellationToken);
 
         // Reload to include flags saved during source submission.
         sites = await context.GetStaticSitesAsync();

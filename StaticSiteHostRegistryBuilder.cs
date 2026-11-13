@@ -2,7 +2,8 @@
 namespace UpdateManager.StaticSiteManagementCoreLibrary;
 public class StaticSiteHostRegistryBuilder(
     IStaticSitesContext context,
-    IStaticSiteRepositoryHandler repositoryHandler)
+    IStaticSiteRepositoryHandler repositoryHandler,
+    IStaticSiteDeploymentGroupProvider groupProvider)
 {
     public async Task<string> BuildAsync(string deploymentGroup)
     {
@@ -10,9 +11,28 @@ public class StaticSiteHostRegistryBuilder(
 
         var sites = await context.GetStaticSitesAsync();
 
+        var groups = await groupProvider.GetDeploymentGroupsAsync();
+        var group = groups.SingleOrDefault(item => string.Equals(
+            item.Name, deploymentGroup, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Deployment group '{deploymentGroup}' is not configured.");
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(group.RepositoryDirectory);
+        string registryPath = Path.Combine(group.RepositoryDirectory, "apps.txt");
+        string current = File.Exists(registryPath)
+            ? await File.ReadAllTextAsync(registryPath)
+            : "";
+        var existingFolders = StaticSiteHostRegistryContent.ReadFolders(current);
+
         var selected = sites
             .Where(site =>
                 !site.Disabled &&
+                // Preserve existing members, including legacy .0 sites.
+                // New sites qualify only after their first changed source is pushed.
+                (existingFolders.Contains(site.Folder) ||
+                    (!site.Version.EndsWith(".0", StringComparison.Ordinal) &&
+                        !site.SourceUpdatePending) ||
+                    site.DeploymentBuildPending) &&
                 string.Equals(
                     site.DeploymentGroup,
                     deploymentGroup,
@@ -25,14 +45,7 @@ public class StaticSiteHostRegistryBuilder(
                 StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (selected.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"No sites are registered for '{deploymentGroup}'.");
-        }
-
-        
-
+        // A header-only list is valid when all sites are staged or disabled.
         HashSet<string> folders =
             new(StringComparer.OrdinalIgnoreCase);
 

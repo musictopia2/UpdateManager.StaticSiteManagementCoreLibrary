@@ -60,8 +60,8 @@ public class StaticSiteDiscoveryService(
         site.SourceUpdatePending = false;
         site.DeploymentBuildPending = false;
 
-        // Registration still needs to update the host's site list.
-        site.HostUpdatePending = true;
+        // Registration prepares source only. Deployment adds host membership.
+        site.HostUpdatePending = false;
 
         await context.AddStaticSiteAsync(site);
 

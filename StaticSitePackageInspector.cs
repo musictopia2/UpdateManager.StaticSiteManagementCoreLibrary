@@ -3,15 +3,23 @@ public class StaticSitePackageInspector(
     IStaticSitesContext sitesContext,
     IPackagesContext packagesContext)
 {
-    public async Task<BasicList<StaticSitePackageReferenceModel>> InspectAsync()
+    public async Task<BasicList<StaticSitePackageReferenceModel>> InspectAsync(
+        IEnumerable<string>? projectPaths = null)
     {
         var sites = await sitesContext.GetStaticSitesAsync();
         var packages = await packagesContext.GetPackagesAsync();
 
+        HashSet<string>? selectedPaths = projectPaths is null
+            ? null
+            : new(projectPaths.Select(Path.GetFullPath),
+                StringComparer.OrdinalIgnoreCase);
+
         BasicList<StaticSitePackageReferenceModel> output = [];
 
         foreach (var site in sites
-            .Where(item => item.Disabled == false)
+            .Where(item => item.Disabled == false &&
+                (selectedPaths is null ||
+                    selectedPaths.Contains(Path.GetFullPath(item.ProjectPath))))
             .OrderBy(item => item.DisplayName,
                 StringComparer.OrdinalIgnoreCase))
         {
@@ -59,9 +67,10 @@ public class StaticSitePackageInspector(
     }
 
     public async Task<BasicList<NuGetPackageModel>>
-        GetRequiredManagedPackagesAsync()
+        GetRequiredManagedPackagesAsync(
+        IEnumerable<string>? projectPaths = null)
     {
-        var references = await InspectAsync();
+        var references = await InspectAsync(projectPaths);
         var packages = await packagesContext.GetPackagesAsync();
 
         BasicList<NuGetPackageModel> output = [];

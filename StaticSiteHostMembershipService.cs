@@ -6,64 +6,6 @@ public class StaticSiteHostMembershipService(
     IStaticSiteHostPublicationService publication,
     IStaticSiteHostCleanupService cleanup)
 {
-    private static HashSet<string> ReadFolders(string content)
-    {
-        HashSet<string> folders =
-            new(StringComparer.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return folders;
-        }
-
-        string[] lines = content.Split('\n');
-
-        string[] headers = lines[0]
-            .TrimStart('\uFEFF')
-            .TrimEnd('\r')
-            .Split('\t');
-
-        int folderIndex = Array.FindIndex(
-            headers,
-            header => string.Equals(
-                header.Trim(),
-                "Folder",
-                StringComparison.OrdinalIgnoreCase));
-
-        if (folderIndex < 0)
-        {
-            throw new InvalidOperationException(
-                "The existing apps.txt has no Folder column.");
-        }
-
-        foreach (string line in lines.Skip(1))
-        {
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            string[] columns = line.TrimEnd('\r').Split('\t');
-
-            if (columns.Length != headers.Length)
-            {
-                throw new InvalidOperationException(
-                    "The existing apps.txt contains an invalid row.");
-            }
-
-            string folder = columns[folderIndex].Trim();
-
-            if (string.IsNullOrWhiteSpace(folder))
-            {
-                throw new InvalidOperationException(
-                    "The existing apps.txt contains an empty Folder value.");
-            }
-
-            folders.Add(folder);
-        }
-
-        return folders;
-    }
     public async Task<int> SynchronizeAsync(
     CancellationToken cancellationToken = default)
     {
@@ -105,7 +47,7 @@ public class StaticSiteHostMembershipService(
                 ? await File.ReadAllTextAsync(registryPath)
                 : "";
 
-            HashSet<string> previousFolders = ReadFolders(current);
+            HashSet<string> previousFolders = StaticSiteHostRegistryContent.ReadFolders(current);
 
             var removedSites = members
                 .Where(site =>
@@ -113,7 +55,11 @@ public class StaticSiteHostMembershipService(
                     previousFolders.Contains(site.Folder))
                 .ToList();
 
-            bool listChanged = !string.Equals(
+            // An untouched group containing only staged sites needs no list yet.
+            bool emptyStagingGroup = string.IsNullOrWhiteSpace(current) &&
+                StaticSiteHostRegistryContent.ReadFolders(desired).Count == 0;
+
+            bool listChanged = !emptyStagingGroup && !string.Equals(
                 current.ReplaceLineEndings("\n"),
                 desired.ReplaceLineEndings("\n"),
                 StringComparison.Ordinal);
