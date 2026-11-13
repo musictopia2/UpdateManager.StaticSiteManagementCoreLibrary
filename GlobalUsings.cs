@@ -1,0 +1,10 @@
+﻿global using UpdateManager.CoreLibrary.DataAccess;
+global using UpdateManager.CoreLibrary.Interfaces;
+global using Microsoft.Extensions.DependencyInjection;
+global using CommonBasicLibraries.CollectionClasses;
+global using System.Xml.Linq;
+global using UpdateManager.CoreLibrary.Models;
+global using bb1 = CommonBasicLibraries.BasicDataSettingsAndProcesses.BasicDataFunctions;
+global using CommonBasicLibraries.AdvancedGeneralFunctionsAndProcesses.BasicExtensions;
+global using UpdateManager.CoreLibrary.Utilities;
+global using UpdateManager.CoreLibrary.ProjectFileHelpers;
