@@ -4,7 +4,10 @@ public class StaticSiteDiscoveryService(
     IStaticSiteDiscoveryHandler handler,
     IStaticSiteSetupHandler setupHandler,
     IStaticSitePreparationService preparation,
-    IStaticSiteRepositoryService repositories)
+    IStaticSiteRepositoryService repositories,
+    IStaticSiteDeploymentGroupProvider groupProvider,
+    StaticSiteUpdateSupportInstaller updateSupport
+    )
 {
     public async Task AddStaticSiteAsync(StaticSiteModel site)
     {
@@ -36,6 +39,25 @@ public class StaticSiteDiscoveryService(
             throw new InvalidOperationException(
                 $"Static-site setup validation failed: {site.ProjectPath}");
         }
+
+        var groups = await groupProvider.GetDeploymentGroupsAsync();
+
+        var group = groups.SingleOrDefault(item => string.Equals(
+            item.Name,
+            site.DeploymentGroup,
+            StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Deployment group '{site.DeploymentGroup}' is not configured.");
+
+        if (group.HostingKind == EnumStaticSiteHostingKind.LocalDocker)
+        {
+            await updateSupport.InstallAsync(site.ProjectPath, site.Version);
+            await context.AddStaticSiteAsync(site);
+
+            Console.WriteLine($"Registered local static site: {site.DisplayName}");
+            return;
+        }
+
 
         await repositories.EnsureRepositoryAsync(site.ProjectPath);
 

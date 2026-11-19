@@ -1,5 +1,5 @@
 ﻿namespace UpdateManager.StaticSiteManagementCoreLibrary;
-public class StaticSiteDeploymentManager(
+public class PublicStaticSiteDeploymentManager(
     IStaticSitesContext context,
     StaticSiteVersionPreparationService preparation,
     StaticSiteSourceSubmissionService submission,
@@ -50,12 +50,10 @@ public class StaticSiteDeploymentManager(
         // Allocated versions remain pending if publication must be retried.
         if (preparedSites.Count > 0)
         {
-            var packages = await packageInspector.GetRequiredManagedPackagesAsync(
-                preparedSites.Select(site => site.ProjectPath));
+            var packages =
+                await packageInspector.GetRequiredManagedPackagesAsync(preparedSites);
 
-            await packagePublication.EnsurePublishedAsync(
-                packages,
-                cancellationToken);
+            await packagePublication.EnsurePublishedAsync(packages, cancellationToken);
         }
 
         int submittedCount = 0;

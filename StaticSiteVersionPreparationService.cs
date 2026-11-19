@@ -50,7 +50,7 @@ public class StaticSiteVersionPreparationService(
         return true;
     }
 
-    private static string GetNextVersion(string version)
+    internal static string GetNextVersion(string version)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
 

@@ -44,7 +44,7 @@ public class StaticSiteHostMembershipService(
                 await registryBuilder.BuildAsync(members.Key);
 
             string current = File.Exists(registryPath)
-                ? await File.ReadAllTextAsync(registryPath)
+                ? await File.ReadAllTextAsync(registryPath, cancellationToken)
                 : "";
 
             HashSet<string> previousFolders = StaticSiteHostRegistryContent.ReadFolders(current);
@@ -68,7 +68,7 @@ public class StaticSiteHostMembershipService(
                 members.Any(site => site.HostUpdatePending);
 
             bool cleanupPending =
-                members.Any(site => site.RenderCacheClearPending);
+                members.Any(site => site.HostCleanupPending);
 
             if (!listChanged && !publicationPending && !cleanupPending)
             {
@@ -83,13 +83,13 @@ public class StaticSiteHostMembershipService(
                     bool needsCleanup = removedSites.Contains(site);
 
                     if (!site.HostUpdatePending ||
-                        (needsCleanup && !site.RenderCacheClearPending))
+                        (needsCleanup && !site.HostCleanupPending))
                     {
                         site.HostUpdatePending = true;
 
                         if (needsCleanup)
                         {
-                            site.RenderCacheClearPending = true;
+                            site.HostCleanupPending = true;
                         }
 
                         await context.UpdateStaticSiteAsync(site);
@@ -108,16 +108,16 @@ public class StaticSiteHostMembershipService(
             }
 
             // Also handles retries where publication already succeeded.
-            if (members.Any(site => site.RenderCacheClearPending))
+            if (members.Any(site => site.HostCleanupPending))
             {
                 await cleanup.ClearAsync(
                     members.Key,
                     cancellationToken);
 
                 foreach (var site in members.Where(
-                    site => site.RenderCacheClearPending))
+                    site => site.HostCleanupPending))
                 {
-                    site.RenderCacheClearPending = false;
+                    site.HostCleanupPending = false;
                     await context.UpdateStaticSiteAsync(site);
                 }
             }

@@ -1,4 +1,6 @@
-﻿namespace UpdateManager.StaticSiteManagementCoreLibrary;
+﻿using Microsoft.Extensions.DependencyInjection.Extensions;
+
+namespace UpdateManager.StaticSiteManagementCoreLibrary;
 public static class ServiceExtensions
 {
     extension(IServiceCollection services)
@@ -18,6 +20,15 @@ public static class ServiceExtensions
                 .AddTransient<StaticSiteRegistrationManager>();
             return services;
         }
+        public IServiceCollection RegisterCombinedStaticSiteDeploymentServices<T>()
+            where T : class, IStaticSiteHostCleanupService
+        {
+            services.RegisterStaticSiteDeploymentServices<T>();
+            services.RegisterLocalStaticSiteDeploymentServices();
+
+            return services;
+        }
+
         public IServiceCollection RegisterStaticSiteDeploymentServices<T>()
             where T : class, IStaticSiteHostCleanupService
         {
@@ -34,9 +45,19 @@ public static class ServiceExtensions
                 .AddTransient<StaticSiteHostRegistryWriter>()
                 .AddTransient<IStaticSiteHostPublicationService, StaticSiteHostPublicationService>()
                 .AddTransient<StaticSiteHostMembershipService>()
-                .AddTransient<StaticSiteDeploymentManager>()
+                .AddTransient<PublicStaticSiteDeploymentManager>()
                 .AddTransient<IStaticSiteHostCleanupService, T>();
 
+            return services;
+        }
+        //this means a person could choose local only if they chose.
+        public IServiceCollection RegisterLocalStaticSiteDeploymentServices()
+        {
+            services.TryAddTransient<IStaticSitesContext, FileStaticSitesContext>();
+            services.TryAddTransient<IPackagesContext, FilePackagesContext>();
+            services.TryAddTransient<StaticSiteDependencyUpdateService>();
+            services.TryAddTransient<LocalStaticSiteDeploymentService>();
+            services.TryAddTransient<LocalStaticSiteDeploymentManager>();
             return services;
         }
     }
