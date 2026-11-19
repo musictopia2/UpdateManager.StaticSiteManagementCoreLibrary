@@ -80,10 +80,10 @@ public class StaticSiteWorkflowDispatcher(
         process.Start();
 
         Task<string> outputTask =
-            process.StandardOutput.ReadToEndAsync(cancellationToken);
+            process.StandardOutput.ReadToEndAsync();
 
         Task<string> errorTask =
-            process.StandardError.ReadToEndAsync(cancellationToken);
+            process.StandardError.ReadToEndAsync();
 
         try
         {
@@ -109,7 +109,7 @@ public class StaticSiteWorkflowDispatcher(
                 process.Kill(entireProcessTree: true);
             }
 
-            await process.WaitForExitAsync(cancellationToken);
+            await process.WaitForExitAsync();
             await Task.WhenAll(outputTask, errorTask);
 
             throw;

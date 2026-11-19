@@ -26,16 +26,10 @@ public sealed class LocalStaticSiteDeploymentManager(
         var sites = await context.GetStaticSitesAsync();
 
         var groupSites = sites
-            .Where(site => !site.Disabled && string.Equals(
+            .Where(site => string.Equals(
                 site.DeploymentGroup, group.Name, StringComparison.OrdinalIgnoreCase))
             .OrderBy(site => site.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        if (groupSites.Count == 0)
-        {
-            Console.WriteLine($"No enabled sites in '{group.Name}'.");
-            return;
-        }
 
         string hostWebRoot = await DockerBindMountResolver.GetWebRootAsync(local);
         DirectoryInfo hostDirectory = new(hostWebRoot);
@@ -52,14 +46,56 @@ public sealed class LocalStaticSiteDeploymentManager(
                 $"Docker is serving from an unexpected folder: {hostWebRoot}");
         }
 
-        foreach (var site in groupSites)
+        var disabledSites = groupSites.Where(site => site.Disabled).ToList();
+        var enabledSites = groupSites.Where(site => !site.Disabled).ToList();
+
+        foreach (var site in disabledSites)
         {
-            bool deployed = await deployment.DeployIfChangedAsync(
+            if (await LocalStaticSiteHostDeploymentService.TakeDownAsync(site, hostWebRoot))
+            {
+                Console.WriteLine($"Took {site.DisplayName} offline.");
+            }
+        }
+
+        // Publish removals before an enabled site's build can fail.
+        if (disabledSites.Count > 0)
+        {
+            var (remainingSites, removedFromRegistry) =
+                await LocalStaticSiteHostRegistryWriter.WriteAsync(hostWebRoot, enabledSites);
+
+            if (removedFromRegistry)
+            {
+                Console.WriteLine($"Updated apps.txt for '{group.Name}' ({remainingSites} site(s)).");
+            }
+        }
+
+        foreach (var site in enabledSites)
+        {
+            var result = await deployment.DeployWithResultAsync(
                 site, local.StagingRoot, hostWebRoot);
 
-            Console.WriteLine(deployed
-                ? $"Deployed {site.DisplayName} at {site.Version} and saved its fingerprint."
-                : $"No changes for {site.DisplayName} at {site.Version}. Skipping deployment.");
+            Console.WriteLine(result switch
+            {
+                EnumLocalStaticSiteDeploymentResult.Published =>
+                    $"Deployed {site.DisplayName} at {site.Version} and saved its fingerprint.",
+                EnumLocalStaticSiteDeploymentResult.Restored =>
+                    $"Restored {site.DisplayName} at {site.Version}. Skipping publish.",
+                _ => $"No changes for {site.DisplayName} at {site.Version}. Skipping deployment."
+            });
         }
+
+        var (listedSites, registryChanged) =
+            await LocalStaticSiteHostRegistryWriter.WriteAsync(hostWebRoot, enabledSites);
+
+        Console.WriteLine(registryChanged
+            ? $"Updated apps.txt for '{group.Name}' ({listedSites} site(s))."
+            : $"apps.txt for '{group.Name}' is current ({listedSites} site(s)).");
+
+        var (landingPage, landingPageChanged) =
+            await LocalStaticSiteHostRegistryWriter.WriteLandingPageAsync(hostWebRoot);
+
+        Console.WriteLine(landingPageChanged
+            ? $"Updated /{landingPage} for '{group.Name}'."
+            : $"/{landingPage} for '{group.Name}' is current.");
     }
 }

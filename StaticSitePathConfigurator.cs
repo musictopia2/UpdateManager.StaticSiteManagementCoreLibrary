@@ -13,15 +13,8 @@ public static partial class StaticSitePathConfigurator
         string displayName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
-
-        if (FolderPattern.IsMatch(folder) == false)
-        {
-            throw new ArgumentException(
-                "Use lowercase letters, numbers, and separating hyphens.",
-                nameof(folder));
-        }
+        ValidateFolder(folder);
 
         projectPath = Path.GetFullPath(projectPath);
 
@@ -70,6 +63,18 @@ public static partial class StaticSitePathConfigurator
         await WriteIfChangedAsync(manifestPath, updatedManifest);
         await ConfigureLaunchSettingsAsync(directory, folder);
     }
+    internal static void ValidateFolder(string folder)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+
+        if (!FolderPattern.IsMatch(folder))
+        {
+            throw new ArgumentException(
+                "Use lowercase letters, numbers, and separating hyphens.",
+                nameof(folder));
+        }
+    }
+
     private static async Task ConfigureLaunchSettingsAsync(
     string directory,
     string folder)
@@ -187,7 +192,7 @@ public static partial class StaticSitePathConfigurator
         }
     }
 
-    [GeneratedRegex(@"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+    [GeneratedRegex(@"\A[a-z0-9]+(?:-[a-z0-9]+)*\z")]
     private static partial Regex FolderPattern { get; }
 
     [GeneratedRegex(

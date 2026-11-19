@@ -8,7 +8,21 @@ public sealed class LocalStaticSiteDeploymentService(
         string stagingRoot,
         string hostWebRoot)
     {
+        return await DeployWithResultAsync(site, stagingRoot, hostWebRoot) !=
+            EnumLocalStaticSiteDeploymentResult.Unchanged;
+    }
+
+    internal async Task<EnumLocalStaticSiteDeploymentResult> DeployWithResultAsync(
+        StaticSiteModel site,
+        string stagingRoot,
+        string hostWebRoot)
+    {
         ArgumentNullException.ThrowIfNull(site);
+
+        if (site.Disabled)
+        {
+            return EnumLocalStaticSiteDeploymentResult.Unchanged;
+        }
 
         await dependencies.UpdateAsync(site);
 
@@ -28,16 +42,11 @@ public sealed class LocalStaticSiteDeploymentService(
             ? site.Version
             : StaticSiteVersionPreparationService.GetNextVersion(site.Version);
 
-       
-
         // Write both version files in the original project before copying it.
         StaticSiteVersionWriter versionWriter = new();
         await versionWriter.WriteVersionAsync(site.ProjectPath, deploymentVersion);
 
-        string liveIndexPath = Path.Combine(
-            hostWebRoot, site.Folder, "index.html");
-
-        if (sourceMatches && File.Exists(liveIndexPath))
+        if (sourceMatches)
         {
             string stampedFingerprint =
                 await LocalStaticSiteFingerprint.ComputeAsync(sourceDirectory);
@@ -47,7 +56,17 @@ public sealed class LocalStaticSiteDeploymentService(
                 site.LastDeployedSourceFingerprint,
                 StringComparison.Ordinal))
             {
-                return false;
+                string liveIndexPath = Path.Combine(hostWebRoot, site.Folder, "index.html");
+
+                if (File.Exists(liveIndexPath))
+                {
+                    return EnumLocalStaticSiteDeploymentResult.Unchanged;
+                }
+
+                if (await LocalStaticSiteHostDeploymentService.TryRestoreAsync(site, hostWebRoot))
+                {
+                    return EnumLocalStaticSiteDeploymentResult.Restored;
+                }
             }
         }
 
@@ -61,6 +80,13 @@ public sealed class LocalStaticSiteDeploymentService(
         site.LastDeployedSourceFingerprint = deployedFingerprint;
         await context.UpdateStaticSiteAsync(site);
 
-        return true;
+        return EnumLocalStaticSiteDeploymentResult.Published;
     }
+}
+
+internal enum EnumLocalStaticSiteDeploymentResult
+{
+    Unchanged,
+    Published,
+    Restored
 }
