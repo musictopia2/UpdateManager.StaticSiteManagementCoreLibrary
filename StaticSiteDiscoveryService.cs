@@ -54,6 +54,8 @@ public class StaticSiteDiscoveryService(
         if (settings is LocalStaticSiteDeploymentSettings)
         {
             await updateSupport.InstallAsync(site.ProjectPath, site.Version);
+            site.RegisteredSourceFingerprint = await LocalStaticSiteFingerprint.ComputeAsync(
+                Path.GetDirectoryName(site.ProjectPath)!);
             await context.AddStaticSiteAsync(site);
 
             Console.WriteLine($"Registered local static site: {site.DisplayName}");

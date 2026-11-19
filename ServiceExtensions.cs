@@ -25,6 +25,7 @@ public static class ServiceExtensions
         {
             services.RegisterStaticSiteDeploymentServices<T>();
             services.RegisterLocalStaticSiteDeploymentServices();
+            services.TryAddTransient<CombinedStaticSiteDeploymentManager>();
 
             return services;
         }

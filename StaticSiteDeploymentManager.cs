@@ -17,7 +17,8 @@ public class PublicStaticSiteDeploymentManager(
         var groups = await groupProvider.GetDeploymentGroupsAsync();
         var groupsByName = groups.ToDictionary(
             group => group.Name, StringComparer.OrdinalIgnoreCase);
-        HashSet<string> publicGroupNames = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PublicStaticSiteDeploymentSettings> publicGroups =
+            new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string groupName in sites.Select(site => site.DeploymentGroup)
             .Distinct(StringComparer.OrdinalIgnoreCase))
@@ -36,16 +37,19 @@ public class PublicStaticSiteDeploymentManager(
                 continue;
             }
 
-            _ = StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, group.Name);
-            publicGroupNames.Add(groupName);
+            publicGroups.Add(groupName,
+                StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, group.Name));
         }
 
         var activeSites = sites
-            .Where(site => !site.Disabled && publicGroupNames.Contains(site.DeploymentGroup))
+            .Where(site => !site.Disabled && publicGroups.ContainsKey(site.DeploymentGroup))
             .OrderBy(
                 site => site.DisplayName,
                 StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        activeSites = await GetSitesReadyForSourceUpdateAsync(
+            activeSites, publicGroups, cancellationToken);
 
         // Update project references before inspecting source changes.
         foreach (var site in activeSites)
@@ -72,7 +76,6 @@ public class PublicStaticSiteDeploymentManager(
             }
         }
 
-        // Only changed or unfinished submissions need packages.
         // Allocated versions remain pending if publication must be retried.
         if (preparedSites.Count > 0)
         {
@@ -104,7 +107,7 @@ public class PublicStaticSiteDeploymentManager(
             .Where(site =>
                 !site.Disabled &&
                 site.DeploymentBuildPending &&
-                publicGroupNames.Contains(site.DeploymentGroup))
+                publicGroups.ContainsKey(site.DeploymentGroup))
             .GroupBy(
                 site => site.DeploymentGroup,
                 StringComparer.OrdinalIgnoreCase)
@@ -141,5 +144,52 @@ public class PublicStaticSiteDeploymentManager(
             $"Updated {membershipUpdates} host membership list(s). " +
             $"Submitted {submittedCount} site update(s). " +
             $"Requested {pendingGroups.Count} coordinator build(s).");
+    }
+
+    private static async Task<List<StaticSiteModel>> GetSitesReadyForSourceUpdateAsync(
+        IEnumerable<StaticSiteModel> sites,
+        Dictionary<string, PublicStaticSiteDeploymentSettings> publicGroups,
+        CancellationToken cancellationToken)
+    {
+        List<StaticSiteModel> readySites = [];
+
+        foreach (var group in sites.GroupBy(
+            site => site.DeploymentGroup, StringComparer.OrdinalIgnoreCase))
+        {
+            HashSet<string>? listedFolders = null;
+
+            foreach (var site in group)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!site.SourceUpdatePending &&
+                    !site.DeploymentBuildPending &&
+                    site.Version.EndsWith(".0", StringComparison.Ordinal))
+                {
+                    if (listedFolders is null)
+                    {
+                        string registryPath = Path.Combine(
+                            publicGroups[group.Key].RepositoryDirectory, "apps.txt");
+                        string contents = File.Exists(registryPath)
+                            ? await File.ReadAllTextAsync(registryPath, cancellationToken)
+                            : "";
+                        listedFolders = StaticSiteHostRegistryContent.ReadFolders(contents);
+                    }
+
+                    if (!listedFolders.Contains(site.Folder))
+                    {
+                        var changes = await StaticSiteChangeDetector.InspectAsync(
+                            site.ProjectPath, site.LastSubmittedCommit, cancellationToken);
+                        if (!changes.BaselineRequired && !changes.HasChanges)
+                        {
+                            continue;
+                        }
+                    }
+                }
+
+                readySites.Add(site);
+            }
+        }
+
+        return readySites;
     }
 }

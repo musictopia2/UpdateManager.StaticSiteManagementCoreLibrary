@@ -24,11 +24,31 @@ public sealed class LocalStaticSiteDeploymentService(
             return EnumLocalStaticSiteDeploymentResult.Unchanged;
         }
 
-        await dependencies.UpdateAsync(site);
-
         string sourceDirectory = Path.GetDirectoryName(site.ProjectPath)
             ?? throw new InvalidOperationException(
                 $"Could not determine the project folder for '{site.DisplayName}'.");
+
+        if (string.IsNullOrWhiteSpace(site.LastDeployedSourceFingerprint))
+        {
+            string registrationFingerprint =
+                await LocalStaticSiteFingerprint.ComputeAsync(sourceDirectory);
+
+            if (string.IsNullOrWhiteSpace(site.RegisteredSourceFingerprint))
+            {
+                // Older registrations did not keep a source baseline.
+                site.RegisteredSourceFingerprint = registrationFingerprint;
+                await context.UpdateStaticSiteAsync(site);
+                Console.WriteLine($"Recorded a registration baseline for {site.DisplayName}.");
+            }
+
+            if (string.Equals(registrationFingerprint, site.RegisteredSourceFingerprint,
+                StringComparison.Ordinal))
+            {
+                return EnumLocalStaticSiteDeploymentResult.Unchanged;
+            }
+        }
+
+        await dependencies.UpdateAsync(site);
 
         string currentFingerprint =
             await LocalStaticSiteFingerprint.ComputeAsync(sourceDirectory);
