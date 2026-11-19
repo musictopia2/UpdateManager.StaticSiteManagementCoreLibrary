@@ -48,11 +48,13 @@ public sealed class LocalStaticSiteDeploymentManager(
 
         var disabledSites = groupSites.Where(site => site.Disabled).ToList();
         var enabledSites = groupSites.Where(site => !site.Disabled).ToList();
+        bool hasChanges = false;
 
         foreach (var site in disabledSites)
         {
             if (await LocalStaticSiteHostDeploymentService.TakeDownAsync(site, hostWebRoot))
             {
+                hasChanges = true;
                 Console.WriteLine($"Took {site.DisplayName} offline.");
             }
         }
@@ -65,6 +67,7 @@ public sealed class LocalStaticSiteDeploymentManager(
 
             if (removedFromRegistry)
             {
+                hasChanges = true;
                 Console.WriteLine($"Updated apps.txt for '{group.Name}' ({remainingSites} site(s)).");
             }
         }
@@ -74,28 +77,40 @@ public sealed class LocalStaticSiteDeploymentManager(
             var result = await deployment.DeployWithResultAsync(
                 site, local.StagingRoot, hostWebRoot);
 
-            Console.WriteLine(result switch
+            switch (result)
             {
-                EnumLocalStaticSiteDeploymentResult.Published =>
-                    $"Deployed {site.DisplayName} at {site.Version} and saved its fingerprint.",
-                EnumLocalStaticSiteDeploymentResult.Restored =>
-                    $"Restored {site.DisplayName} at {site.Version}. Skipping publish.",
-                _ => $"No changes for {site.DisplayName} at {site.Version}. Skipping deployment."
-            });
+                case EnumLocalStaticSiteDeploymentResult.Published:
+                    hasChanges = true;
+                    Console.WriteLine($"Deployed {site.DisplayName} at {site.Version} and saved its fingerprint.");
+                    break;
+                case EnumLocalStaticSiteDeploymentResult.Restored:
+                    hasChanges = true;
+                    Console.WriteLine($"Restored {site.DisplayName} at {site.Version}. Skipping publish.");
+                    break;
+            }
         }
 
         var (listedSites, registryChanged) =
             await LocalStaticSiteHostRegistryWriter.WriteAsync(hostWebRoot, enabledSites);
 
-        Console.WriteLine(registryChanged
-            ? $"Updated apps.txt for '{group.Name}' ({listedSites} site(s))."
-            : $"apps.txt for '{group.Name}' is current ({listedSites} site(s)).");
+        if (registryChanged)
+        {
+            hasChanges = true;
+            Console.WriteLine($"Updated apps.txt for '{group.Name}' ({listedSites} site(s)).");
+        }
 
         var (landingPage, landingPageChanged) =
             await LocalStaticSiteHostRegistryWriter.WriteLandingPageAsync(hostWebRoot);
 
-        Console.WriteLine(landingPageChanged
-            ? $"Updated /{landingPage} for '{group.Name}'."
-            : $"/{landingPage} for '{group.Name}' is current.");
+        if (landingPageChanged)
+        {
+            hasChanges = true;
+            Console.WriteLine($"Updated /{landingPage} for '{group.Name}'.");
+        }
+
+        if (!hasChanges)
+        {
+            Console.WriteLine($"No changes for local group '{group.Name}'.");
+        }
     }
 }
