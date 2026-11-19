@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace UpdateManager.StaticSiteManagementCoreLibrary;
+﻿namespace UpdateManager.StaticSiteManagementCoreLibrary;
 
 public static class LocalStaticSitePublishService
 {
@@ -59,9 +57,10 @@ public static class LocalStaticSitePublishService
             FileAccess.ReadWrite,
             FileShare.None);
 
+        Console.WriteLine($"Publishing {site.DisplayName} for Docker.");
         DeleteDirectoryIfPresent(stagedDirectory);
 
-        await RunAsync(
+        await LocalStaticSiteProcessRunner.RunAsync(
             "robocopy",
             sourceDirectory,
             [
@@ -87,7 +86,7 @@ public static class LocalStaticSitePublishService
 
         DeleteDirectoryIfPresent(outputDirectory);
 
-        await RunAsync(
+        await LocalStaticSiteProcessRunner.RunAsync(
             "dotnet",
             stagedDirectory,
             ["publish", stagedProjectPath, "-c", "Release", "-o", outputDirectory]);
@@ -101,36 +100,6 @@ public static class LocalStaticSitePublishService
         }
 
         return (publishedWebRoot, sourceFingerprint);
-    }
-
-    private static async Task RunAsync(
-        string fileName,
-        string workingDirectory,
-        string[] arguments,
-        int highestSuccessfulExitCode = 0)
-    {
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = fileName,
-            WorkingDirectory = workingDirectory,
-            UseShellExecute = false
-        };
-
-        foreach (string argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using Process process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException($"Could not start {fileName}.");
-
-        await process.WaitForExitAsync();
-
-        if (process.ExitCode < 0 || process.ExitCode > highestSuccessfulExitCode)
-        {
-            throw new InvalidOperationException(
-                $"{fileName} failed with exit code {process.ExitCode}.");
-        }
     }
 
     private static bool DirectoriesOverlap(string first, string second)

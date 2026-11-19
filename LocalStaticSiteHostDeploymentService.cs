@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace UpdateManager.StaticSiteManagementCoreLibrary;
+﻿namespace UpdateManager.StaticSiteManagementCoreLibrary;
 public static class LocalStaticSiteHostDeploymentService
 {
     public static async Task DeployAsync(
@@ -202,33 +200,15 @@ public static class LocalStaticSiteHostDeploymentService
         }
     }
 
-    private static async Task CopyPublishedFilesAsync(
+    private static Task CopyPublishedFilesAsync(
         string sourceDirectory,
         string destinationDirectory)
     {
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = "robocopy",
-            WorkingDirectory = sourceDirectory,
-            UseShellExecute = false,
-            ArgumentList =
-            {
-                sourceDirectory,
-                destinationDirectory,
-                "/E", "/XJ", "/R:1", "/W:1"
-            }
-        };
-
-        using Process copy = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start robocopy.");
-
-        await copy.WaitForExitAsync();
-
-        if (copy.ExitCode < 0 || copy.ExitCode >= 8)
-        {
-            throw new InvalidOperationException(
-                $"Could not copy the published files. Robocopy exit code: {copy.ExitCode}.");
-        }
+        return LocalStaticSiteProcessRunner.RunAsync(
+            "robocopy",
+            sourceDirectory,
+            [sourceDirectory, destinationDirectory, "/E", "/XJ", "/R:1", "/W:1"],
+            highestSuccessfulExitCode: 7);
     }
 
     private static void VerifyIndexFile(string directory)
