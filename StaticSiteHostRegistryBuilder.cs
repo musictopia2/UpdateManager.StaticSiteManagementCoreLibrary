@@ -11,14 +11,12 @@ public class StaticSiteHostRegistryBuilder(
 
         var sites = await context.GetStaticSitesAsync();
 
-        var groups = await groupProvider.GetDeploymentGroupsAsync();
-        var group = groups.SingleOrDefault(item => string.Equals(
-            item.Name, deploymentGroup, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Deployment group '{deploymentGroup}' is not configured.");
+        PublicStaticSiteDeploymentSettings settings =
+            await StaticSiteDeploymentGroupSettings.GetPublicAsync(
+                groupProvider, deploymentGroup);
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(group.RepositoryDirectory);
-        string registryPath = Path.Combine(group.RepositoryDirectory, "apps.txt");
+        ArgumentException.ThrowIfNullOrWhiteSpace(settings.RepositoryDirectory);
+        string registryPath = Path.Combine(settings.RepositoryDirectory, "apps.txt");
         string current = File.Exists(registryPath)
             ? await File.ReadAllTextAsync(registryPath)
             : "";

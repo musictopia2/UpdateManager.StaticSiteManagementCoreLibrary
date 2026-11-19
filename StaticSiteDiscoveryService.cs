@@ -49,7 +49,9 @@ public class StaticSiteDiscoveryService(
             ?? throw new InvalidOperationException(
                 $"Deployment group '{site.DeploymentGroup}' is not configured.");
 
-        if (group.HostingKind == EnumStaticSiteHostingKind.LocalDocker)
+        var settings = StaticSiteDeploymentGroupSettings.GetSettings(group);
+
+        if (settings is LocalStaticSiteDeploymentSettings)
         {
             await updateSupport.InstallAsync(site.ProjectPath, site.Version);
             await context.AddStaticSiteAsync(site);
@@ -58,6 +60,7 @@ public class StaticSiteDiscoveryService(
             return;
         }
 
+        _ = StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, group.Name);
 
         await repositories.EnsureRepositoryAsync(site.ProjectPath);
 

@@ -1,6 +1,7 @@
 ﻿namespace UpdateManager.StaticSiteManagementCoreLibrary;
 public class PublicStaticSiteDeploymentManager(
     IStaticSitesContext context,
+    IStaticSiteDeploymentGroupProvider groupProvider,
     StaticSiteVersionPreparationService preparation,
     StaticSiteSourceSubmissionService submission,
     IStaticSiteWorkflowDispatcher dispatcher,
@@ -13,9 +14,34 @@ public class PublicStaticSiteDeploymentManager(
         CancellationToken cancellationToken = default)
     {
         var sites = await context.GetStaticSitesAsync();
+        var groups = await groupProvider.GetDeploymentGroupsAsync();
+        var groupsByName = groups.ToDictionary(
+            group => group.Name, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> publicGroupNames = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string groupName in sites.Select(site => site.DeploymentGroup)
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!groupsByName.TryGetValue(groupName, out var group))
+            {
+                throw new InvalidOperationException(
+                    $"Deployment group '{groupName}' is not configured.");
+            }
+
+            var settings = StaticSiteDeploymentGroupSettings.GetSettings(group);
+            if (settings is LocalStaticSiteDeploymentSettings)
+            {
+                continue;
+            }
+
+            _ = StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, group.Name);
+            publicGroupNames.Add(groupName);
+        }
 
         var activeSites = sites
-            .Where(site => !site.Disabled)
+            .Where(site => !site.Disabled && publicGroupNames.Contains(site.DeploymentGroup))
             .OrderBy(
                 site => site.DisplayName,
                 StringComparer.OrdinalIgnoreCase)
@@ -77,7 +103,8 @@ public class PublicStaticSiteDeploymentManager(
         var pendingGroups = sites
             .Where(site =>
                 !site.Disabled &&
-                site.DeploymentBuildPending)
+                site.DeploymentBuildPending &&
+                publicGroupNames.Contains(site.DeploymentGroup))
             .GroupBy(
                 site => site.DeploymentGroup,
                 StringComparer.OrdinalIgnoreCase)

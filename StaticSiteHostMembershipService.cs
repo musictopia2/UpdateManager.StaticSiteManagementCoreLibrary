@@ -33,11 +33,20 @@ public class StaticSiteHostMembershipService(
                 ?? throw new InvalidOperationException(
                     $"Deployment group '{members.Key}' is not configured.");
 
+            var settings = StaticSiteDeploymentGroupSettings.GetSettings(configuration);
+            if (settings is LocalStaticSiteDeploymentSettings)
+            {
+                continue;
+            }
+
+            var publicSettings =
+                StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, configuration.Name);
+
             ArgumentException.ThrowIfNullOrWhiteSpace(
-                configuration.RepositoryDirectory);
+                publicSettings.RepositoryDirectory);
 
             string registryPath = Path.Combine(
-                configuration.RepositoryDirectory,
+                publicSettings.RepositoryDirectory,
                 "apps.txt");
 
             string desired =

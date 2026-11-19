@@ -13,24 +13,18 @@ public class StaticSiteWorkflowDispatcher(
         ArgumentException.ThrowIfNullOrWhiteSpace(deploymentGroup);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var groups = await groupProvider.GetDeploymentGroupsAsync();
-
-        var group = groups.SingleOrDefault(item =>
-            string.Equals(
-                item.Name,
-                deploymentGroup,
-                StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Deployment group '{deploymentGroup}' is not configured.");
+        PublicStaticSiteDeploymentSettings settings =
+            await StaticSiteDeploymentGroupSettings.GetPublicAsync(
+                groupProvider, deploymentGroup);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
-            group.RepositoryDirectory);
+            settings.RepositoryDirectory);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
-            group.WorkflowFile);
+            settings.WorkflowFile);
 
         string directory =
-            Path.GetFullPath(group.RepositoryDirectory);
+            Path.GetFullPath(settings.RepositoryDirectory);
 
         if (!Directory.Exists(directory))
         {
@@ -45,8 +39,8 @@ public class StaticSiteWorkflowDispatcher(
                 $"The coordinator must have its own repository: {directory}");
         }
 
-        if (Path.GetFileName(group.WorkflowFile) != group.WorkflowFile ||
-            group.WorkflowFile.StartsWith('-'))
+        if (Path.GetFileName(settings.WorkflowFile) != settings.WorkflowFile ||
+            settings.WorkflowFile.StartsWith('-'))
         {
             throw new InvalidOperationException(
                 "WorkflowFile must contain only the workflow filename.");
@@ -56,7 +50,7 @@ public class StaticSiteWorkflowDispatcher(
             directory,
             ".github",
             "workflows",
-            group.WorkflowFile);
+            settings.WorkflowFile);
 
         if (!File.Exists(workflowPath))
         {
@@ -79,17 +73,17 @@ public class StaticSiteWorkflowDispatcher(
 
         startInfo.ArgumentList.Add("workflow");
         startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add(group.WorkflowFile);
+        startInfo.ArgumentList.Add(settings.WorkflowFile);
 
         using Process process = new() { StartInfo = startInfo };
 
         process.Start();
 
         Task<string> outputTask =
-            process.StandardOutput.ReadToEndAsync();
+            process.StandardOutput.ReadToEndAsync(cancellationToken);
 
         Task<string> errorTask =
-            process.StandardError.ReadToEndAsync();
+            process.StandardError.ReadToEndAsync(cancellationToken);
 
         try
         {
@@ -115,7 +109,7 @@ public class StaticSiteWorkflowDispatcher(
                 process.Kill(entireProcessTree: true);
             }
 
-            await process.WaitForExitAsync();
+            await process.WaitForExitAsync(cancellationToken);
             await Task.WhenAll(outputTask, errorTask);
 
             throw;

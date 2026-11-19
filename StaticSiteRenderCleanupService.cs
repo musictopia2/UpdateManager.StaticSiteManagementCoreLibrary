@@ -14,23 +14,17 @@ public class StaticSiteRenderCleanupService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(deploymentGroup);
 
-        var groups = await groupProvider.GetDeploymentGroupsAsync();
-
-        var group = groups.SingleOrDefault(item =>
-            string.Equals(
-                item.Name,
-                deploymentGroup,
-                StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Deployment group '{deploymentGroup}' is not configured.");
+        PublicStaticSiteDeploymentSettings settings =
+            await StaticSiteDeploymentGroupSettings.GetPublicAsync(
+                groupProvider, deploymentGroup);
 
         ArgumentException.ThrowIfNullOrWhiteSpace(
-            group.RepositoryDirectory);
+            settings.RepositoryDirectory);
 
-        ArgumentException.ThrowIfNullOrWhiteSpace(group.WorkflowFile);
+        ArgumentException.ThrowIfNullOrWhiteSpace(settings.WorkflowFile);
 
         string directory =
-            Path.GetFullPath(group.RepositoryDirectory);
+            Path.GetFullPath(settings.RepositoryDirectory);
 
         if (!Directory.Exists(directory))
         {
@@ -45,8 +39,8 @@ public class StaticSiteRenderCleanupService(
                 $"The coordinator must have its own repository: {directory}");
         }
 
-        if (Path.GetFileName(group.WorkflowFile) != group.WorkflowFile ||
-            group.WorkflowFile.StartsWith('-'))
+        if (Path.GetFileName(settings.WorkflowFile) != settings.WorkflowFile ||
+            settings.WorkflowFile.StartsWith('-'))
         {
             throw new InvalidOperationException(
                 "WorkflowFile must contain only the workflow filename.");
@@ -62,7 +56,7 @@ public class StaticSiteRenderCleanupService(
         {
             await RequestAndWaitAsync(
                 directory,
-                group.WorkflowFile,
+                settings.WorkflowFile,
                 deploymentGroup,
                 timeout.Token);
         }
