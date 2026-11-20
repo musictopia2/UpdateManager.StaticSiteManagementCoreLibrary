@@ -41,24 +41,12 @@ public class StaticSiteDiscoveryService(
                 $"Static-site setup validation failed: {site.ProjectPath}");
         }
 
-        var groups = await groupProvider.GetDeploymentGroupsAsync();
-
-        var group = groups.SingleOrDefault(item => string.Equals(
-            item.Name,
-            site.DeploymentGroup,
-            StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Deployment group '{site.DeploymentGroup}' is not configured.");
-
-        var settings = StaticSiteDeploymentGroupSettings.GetSettings(group);
+        var settings = await GetDeploymentSettingsAsync(site.DeploymentGroup);
 
         if (settings is LocalStaticSiteDeploymentSettings)
         {
             await updateSupport.InstallAsync(site.ProjectPath, site.Version);
-            if (lanLaunchSettings is not null)
-            {
-                await StaticSitePathConfigurator.ConfigureLanLaunchProfileAsync(site.ProjectPath, lanLaunchSettings);
-            }
+            await ApplyLanLaunchSettingsAsync(site.ProjectPath, settings);
             site.RegisteredSourceFingerprint = await LocalStaticSiteFingerprint.ComputeAsync(
                 Path.GetDirectoryName(site.ProjectPath)!);
             await context.AddStaticSiteAsync(site);
@@ -67,16 +55,12 @@ public class StaticSiteDiscoveryService(
             return;
         }
 
-        _ = StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, group.Name);
+        _ = StaticSiteDeploymentGroupSettings.GetPublicSettings(settings, site.DeploymentGroup);
 
         await repositories.EnsureRepositoryAsync(site.ProjectPath);
 
         await preparation.PrepareAsync(site);
-        if (lanLaunchSettings is not null)
-        {
-            await StaticSiteRepositoryService.EnsureUserFileIgnoredAsync(site.ProjectPath);
-            await StaticSitePathConfigurator.ConfigureLanLaunchProfileAsync(site.ProjectPath, lanLaunchSettings);
-        }
+        await ApplyLanLaunchSettingsAsync(site.ProjectPath, settings);
 
         await repositories.CommitAndPushAsync(
             site.ProjectPath,
@@ -103,6 +87,59 @@ public class StaticSiteDiscoveryService(
         await context.AddStaticSiteAsync(site);
 
         Console.WriteLine($"Registered static site: {site.DisplayName}");
+    }
+
+    public async Task RefreshLanLaunchProfileAsync(string projectPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
+        if (lanLaunchSettings is null)
+        {
+            throw new InvalidOperationException("LAN launch settings were not registered.");
+        }
+
+        projectPath = Path.GetFullPath(projectPath);
+        var sites = await context.GetStaticSitesAsync();
+        var site = sites.SingleOrDefault(item => string.Equals(
+            Path.GetFullPath(item.ProjectPath), projectPath, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Static site is not registered: {projectPath}");
+        if (!File.Exists(projectPath))
+        {
+            throw new FileNotFoundException("The static-site project was not found.", projectPath);
+        }
+
+        var settings = await GetDeploymentSettingsAsync(site.DeploymentGroup);
+        await ApplyLanLaunchSettingsAsync(projectPath, settings);
+    }
+
+    private async Task<StaticSiteDeploymentSettings> GetDeploymentSettingsAsync(string deploymentGroup)
+    {
+        var groups = await groupProvider.GetDeploymentGroupsAsync();
+
+        var group = groups.SingleOrDefault(item => string.Equals(
+            item.Name,
+            deploymentGroup,
+            StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                $"Deployment group '{deploymentGroup}' is not configured.");
+
+        return StaticSiteDeploymentGroupSettings.GetSettings(group);
+    }
+
+    private async Task ApplyLanLaunchSettingsAsync(
+        string projectPath,
+        StaticSiteDeploymentSettings settings)
+    {
+        if (lanLaunchSettings is null)
+        {
+            return;
+        }
+
+        if (settings is PublicStaticSiteDeploymentSettings)
+        {
+            await StaticSiteRepositoryService.EnsureUserFileIgnoredAsync(projectPath);
+        }
+
+        await StaticSitePathConfigurator.ConfigureLanLaunchProfileAsync(projectPath, lanLaunchSettings);
     }
 
     public async Task<BasicList<StaticSiteModel>> DiscoverMissingStaticSitesAsync()

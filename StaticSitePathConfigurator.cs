@@ -95,36 +95,27 @@ public static partial class StaticSitePathConfigurator
         string propertiesDirectory = Path.Combine(directory, "Properties");
         string path = Path.Combine(propertiesDirectory, "launchSettings.json");
 
-        JsonObject settings = File.Exists(path)
-            ? await ReadLaunchSettingsAsync(path)
-            : new JsonObject { ["$schema"] = "https://json.schemastore.org/launchsettings.json" };
-        if (!settings.ContainsKey("profiles"))
+        JsonObject settings = new()
         {
-            settings["profiles"] = new JsonObject();
-        }
-
-        JsonObject profiles = settings["profiles"] as JsonObject
-            ?? throw new InvalidOperationException($"Invalid profiles in {path}.");
-
-        const string lanProfileName = "lan-https";
-        profiles.Remove(lanProfileName);
-        if (!profiles.Any(entry => entry.Value is JsonObject profile
-            && profile["commandName"]?.GetValue<string>() == "Project"))
-        {
-            string localhostProfileName = "pwa-localhost";
-            for (int suffix = 2; profiles.ContainsKey(localhostProfileName); suffix++)
+            ["$schema"] = "https://json.schemastore.org/launchsettings.json",
+            ["profiles"] = new JsonObject
             {
-                localhostProfileName = $"pwa-localhost-{suffix}";
+                ["lan-https"] = new JsonObject
+                {
+                    ["commandName"] = "Project",
+                    ["dotnetRunMessages"] = true,
+                    ["launchBrowser"] = false,
+                    ["launchUrl"] = "$(StaticSiteLanLaunchUrl)",
+                    ["applicationUrl"] = "$(StaticSiteLanApplicationUrl)",
+                    ["environmentVariables"] = new JsonObject
+                    {
+                        ["ASPNETCORE_ENVIRONMENT"] = "Development",
+                        ["Kestrel__Certificates__Default__Path"] = "$(StaticSiteLanCertificatePath)",
+                        ["Kestrel__Certificates__Default__KeyPath"] = "$(StaticSiteLanKeyPath)"
+                    }
+                }
             }
-            profiles.Insert(0, localhostProfileName, CreateProjectProfile("http://localhost:5000"));
-        }
-
-        JsonObject lanProfile = CreateProjectProfile("$(StaticSiteLanApplicationUrl)");
-        lanProfile["launchUrl"] = "$(StaticSiteLanLaunchUrl)";
-        JsonObject environment = lanProfile["environmentVariables"]!.AsObject();
-        environment["Kestrel__Certificates__Default__Path"] = "$(StaticSiteLanCertificatePath)";
-        environment["Kestrel__Certificates__Default__KeyPath"] = "$(StaticSiteLanKeyPath)";
-        profiles.Add(lanProfileName, lanProfile);
+        };
 
         await WriteLanUserPropertiesAsync(projectPath + ".user", launchSettings);
         Directory.CreateDirectory(propertiesDirectory);
@@ -135,9 +126,10 @@ public static partial class StaticSitePathConfigurator
         string path,
         StaticSiteLanLaunchSettings settings)
     {
-        XDocument project = File.Exists(path)
-            ? XDocument.Parse(await File.ReadAllTextAsync(path))
-            : new XDocument(new XElement("Project"));
+        string? existing = await ReadIfExistsAsync(path);
+        XDocument project = existing is null
+            ? new XDocument(new XElement("Project"))
+            : XDocument.Parse(existing);
         XElement root = project.Root!;
         XNamespace ns = root.Name.Namespace;
         if (root.Name.LocalName != "Project")
@@ -148,6 +140,7 @@ public static partial class StaticSitePathConfigurator
         const string label = "StaticSiteLanLaunch";
         XElement properties = new(ns + "PropertyGroup",
             new XAttribute("Label", label),
+            new XElement(ns + "ActiveDebugProfile", "lan-https"),
             new XElement(ns + "StaticSiteLanApplicationUrl", EscapeMSBuildValue(settings.ApplicationUrl)),
             new XElement(ns + "StaticSiteLanLaunchUrl", EscapeMSBuildValue(settings.LaunchUrl)),
             new XElement(ns + "StaticSiteLanCertificatePath", EscapeMSBuildValue(settings.CertificatePath)),
@@ -169,18 +162,6 @@ public static partial class StaticSitePathConfigurator
         .Replace("'", "%27")
         .Replace("*", "%2A")
         .Replace("?", "%3F");
-
-    private static JsonObject CreateProjectProfile(string applicationUrl) => new()
-    {
-        ["commandName"] = "Project",
-        ["dotnetRunMessages"] = true,
-        ["launchBrowser"] = true,
-        ["applicationUrl"] = applicationUrl,
-        ["environmentVariables"] = new JsonObject
-        {
-            ["ASPNETCORE_ENVIRONMENT"] = "Development"
-        }
-    };
 
     internal static void ValidateFolder(string folder)
     {
@@ -308,11 +289,21 @@ public static partial class StaticSitePathConfigurator
         string path,
         string content)
     {
-        string existing = await File.ReadAllTextAsync(path);
-
-        if (existing != content)
+        if (await ReadIfExistsAsync(path) != content)
         {
             await File.WriteAllTextAsync(path, content);
+        }
+    }
+
+    private static async Task<string?> ReadIfExistsAsync(string path)
+    {
+        try
+        {
+            return await File.ReadAllTextAsync(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
         }
     }
 
