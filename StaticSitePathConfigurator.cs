@@ -63,6 +63,125 @@ public static partial class StaticSitePathConfigurator
         await WriteIfChangedAsync(manifestPath, updatedManifest);
         await ConfigureLaunchSettingsAsync(directory, folder);
     }
+
+    internal static async Task ConfigurePublicDevelopmentAsync(
+        string projectPath,
+        string folder,
+        string displayName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        ValidateFolder(folder);
+
+        string directory = Path.GetDirectoryName(Path.GetFullPath(projectPath))!;
+        string manifestPath = Path.Combine(directory, "wwwroot", "manifest.webmanifest");
+        JsonObject manifest = JsonNode.Parse(await File.ReadAllTextAsync(manifestPath)) as JsonObject
+            ?? throw new InvalidOperationException($"Expected a JSON object in {manifestPath}.");
+        manifest["name"] = displayName;
+        manifest["short_name"] = displayName;
+
+        await WriteIfChangedAsync(manifestPath, FormatJson(manifest));
+    }
+
+    internal static async Task ConfigureLanLaunchProfileAsync(
+        string projectPath,
+        StaticSiteLanLaunchSettings launchSettings)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(launchSettings.ApplicationUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(launchSettings.LaunchUrl);
+        ArgumentException.ThrowIfNullOrWhiteSpace(launchSettings.CertificatePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(launchSettings.KeyPath);
+
+        string directory = Path.GetDirectoryName(Path.GetFullPath(projectPath))!;
+        string propertiesDirectory = Path.Combine(directory, "Properties");
+        string path = Path.Combine(propertiesDirectory, "launchSettings.json");
+
+        JsonObject settings = File.Exists(path)
+            ? await ReadLaunchSettingsAsync(path)
+            : new JsonObject { ["$schema"] = "https://json.schemastore.org/launchsettings.json" };
+        if (!settings.ContainsKey("profiles"))
+        {
+            settings["profiles"] = new JsonObject();
+        }
+
+        JsonObject profiles = settings["profiles"] as JsonObject
+            ?? throw new InvalidOperationException($"Invalid profiles in {path}.");
+
+        const string lanProfileName = "lan-https";
+        profiles.Remove(lanProfileName);
+        if (!profiles.Any(entry => entry.Value is JsonObject profile
+            && profile["commandName"]?.GetValue<string>() == "Project"))
+        {
+            string localhostProfileName = "pwa-localhost";
+            for (int suffix = 2; profiles.ContainsKey(localhostProfileName); suffix++)
+            {
+                localhostProfileName = $"pwa-localhost-{suffix}";
+            }
+            profiles.Insert(0, localhostProfileName, CreateProjectProfile("http://localhost:5000"));
+        }
+
+        JsonObject lanProfile = CreateProjectProfile("$(StaticSiteLanApplicationUrl)");
+        lanProfile["launchUrl"] = "$(StaticSiteLanLaunchUrl)";
+        JsonObject environment = lanProfile["environmentVariables"]!.AsObject();
+        environment["Kestrel__Certificates__Default__Path"] = "$(StaticSiteLanCertificatePath)";
+        environment["Kestrel__Certificates__Default__KeyPath"] = "$(StaticSiteLanKeyPath)";
+        profiles.Add(lanProfileName, lanProfile);
+
+        await WriteLanUserPropertiesAsync(projectPath + ".user", launchSettings);
+        Directory.CreateDirectory(propertiesDirectory);
+        await WriteIfChangedAsync(path, FormatJson(settings));
+    }
+
+    private static async Task WriteLanUserPropertiesAsync(
+        string path,
+        StaticSiteLanLaunchSettings settings)
+    {
+        XDocument project = File.Exists(path)
+            ? XDocument.Parse(await File.ReadAllTextAsync(path))
+            : new XDocument(new XElement("Project"));
+        XElement root = project.Root!;
+        XNamespace ns = root.Name.Namespace;
+        if (root.Name.LocalName != "Project")
+        {
+            throw new InvalidOperationException($"Expected an MSBuild Project element in {path}.");
+        }
+
+        const string label = "StaticSiteLanLaunch";
+        XElement properties = new(ns + "PropertyGroup",
+            new XAttribute("Label", label),
+            new XElement(ns + "StaticSiteLanApplicationUrl", EscapeMSBuildValue(settings.ApplicationUrl)),
+            new XElement(ns + "StaticSiteLanLaunchUrl", EscapeMSBuildValue(settings.LaunchUrl)),
+            new XElement(ns + "StaticSiteLanCertificatePath", EscapeMSBuildValue(settings.CertificatePath)),
+            new XElement(ns + "StaticSiteLanKeyPath", EscapeMSBuildValue(settings.KeyPath)));
+        root.Elements(ns + "PropertyGroup")
+            .Where(group => (string?)group.Attribute("Label") == label)
+            .Remove();
+        root.Add(properties);
+        await WriteIfChangedAsync(path, project.ToString() + Environment.NewLine);
+    }
+
+    private static string EscapeMSBuildValue(string value) => value
+        .Replace("%", "%25")
+        .Replace("$", "%24")
+        .Replace("@", "%40")
+        .Replace(";", "%3B")
+        .Replace("(", "%28")
+        .Replace(")", "%29")
+        .Replace("'", "%27")
+        .Replace("*", "%2A")
+        .Replace("?", "%3F");
+
+    private static JsonObject CreateProjectProfile(string applicationUrl) => new()
+    {
+        ["commandName"] = "Project",
+        ["dotnetRunMessages"] = true,
+        ["launchBrowser"] = true,
+        ["applicationUrl"] = applicationUrl,
+        ["environmentVariables"] = new JsonObject
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = "Development"
+        }
+    };
+
     internal static void ValidateFolder(string folder)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(folder);
@@ -84,17 +203,7 @@ public static partial class StaticSitePathConfigurator
             "Properties",
             "launchSettings.json");
 
-        string content = await File.ReadAllTextAsync(path);
-
-        JsonObject settings = JsonNode.Parse(
-            content,
-            documentOptions: new JsonDocumentOptions
-            {
-                AllowTrailingCommas = true,
-                CommentHandling = JsonCommentHandling.Skip
-            }) as JsonObject
-            ?? throw new InvalidOperationException(
-                $"Expected a JSON object in {path}.");
+        JsonObject settings = await ReadLaunchSettingsAsync(path);
 
         JsonObject profiles = settings["profiles"] as JsonObject
             ?? throw new InvalidOperationException(
@@ -158,6 +267,21 @@ public static partial class StaticSitePathConfigurator
         }
 
         await WriteIfChangedAsync(path, FormatJson(settings));
+    }
+
+    private static async Task<JsonObject> ReadLaunchSettingsAsync(string path)
+    {
+        string content = await File.ReadAllTextAsync(path);
+
+        return JsonNode.Parse(
+            content,
+            documentOptions: new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            }) as JsonObject
+            ?? throw new InvalidOperationException(
+                $"Expected a JSON object in {path}.");
     }
 
     [GeneratedRegex(

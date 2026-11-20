@@ -16,9 +16,7 @@ public class StaticSitePreparationService(
             site.ProjectPath,
             site.Version);
 
-        // Configures the published subfolder, manifest,
-        // and local launch profiles.
-        await StaticSitePathConfigurator.ConfigureAsync(
+        await StaticSitePathConfigurator.ConfigurePublicDevelopmentAsync(
             site.ProjectPath,
             site.Folder,
             site.DisplayName);

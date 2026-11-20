@@ -6,7 +6,8 @@ public class StaticSiteDiscoveryService(
     IStaticSitePreparationService preparation,
     IStaticSiteRepositoryService repositories,
     IStaticSiteDeploymentGroupProvider groupProvider,
-    StaticSiteUpdateSupportInstaller updateSupport
+    StaticSiteUpdateSupportInstaller updateSupport,
+    StaticSiteLanLaunchSettings? lanLaunchSettings = null
     )
 {
     public async Task AddStaticSiteAsync(StaticSiteModel site)
@@ -54,6 +55,10 @@ public class StaticSiteDiscoveryService(
         if (settings is LocalStaticSiteDeploymentSettings)
         {
             await updateSupport.InstallAsync(site.ProjectPath, site.Version);
+            if (lanLaunchSettings is not null)
+            {
+                await StaticSitePathConfigurator.ConfigureLanLaunchProfileAsync(site.ProjectPath, lanLaunchSettings);
+            }
             site.RegisteredSourceFingerprint = await LocalStaticSiteFingerprint.ComputeAsync(
                 Path.GetDirectoryName(site.ProjectPath)!);
             await context.AddStaticSiteAsync(site);
@@ -67,6 +72,11 @@ public class StaticSiteDiscoveryService(
         await repositories.EnsureRepositoryAsync(site.ProjectPath);
 
         await preparation.PrepareAsync(site);
+        if (lanLaunchSettings is not null)
+        {
+            await StaticSiteRepositoryService.EnsureUserFileIgnoredAsync(site.ProjectPath);
+            await StaticSitePathConfigurator.ConfigureLanLaunchProfileAsync(site.ProjectPath, lanLaunchSettings);
+        }
 
         await repositories.CommitAndPushAsync(
             site.ProjectPath,

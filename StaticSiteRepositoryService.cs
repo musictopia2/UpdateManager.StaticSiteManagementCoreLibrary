@@ -188,6 +188,36 @@ public class StaticSiteRepositoryService(
         Console.WriteLine("Static-site source pushed successfully.");
     }
 
+    internal static async Task EnsureUserFileIgnoredAsync(string projectPath)
+    {
+        string directory = GetProjectDirectory(projectPath);
+        string userFileName = Path.GetFileName(projectPath) + ".user";
+        var tracked = await RunAsync(directory, "git", CancellationToken.None,
+            "ls-files", "--error-unmatch", "--", userFileName);
+        if (tracked.ExitCode == 0)
+        {
+            throw new InvalidOperationException(
+                $"Git already tracks {userFileName}. Remove it from tracking before configuring a private LAN profile.");
+        }
+
+        if (tracked.ExitCode != 1)
+        {
+            throw new InvalidOperationException($"Could not check whether Git tracks {userFileName}. {tracked.Error}");
+        }
+
+        var ignored = await RunAsync(directory, "git", CancellationToken.None,
+            "check-ignore", "--quiet", "--", userFileName);
+        if (ignored.ExitCode == 1)
+        {
+            string ignorePath = Path.Combine(directory, ".gitignore");
+            await File.AppendAllTextAsync(ignorePath,
+                $"{Environment.NewLine}/*.csproj.user{Environment.NewLine}");
+        }
+
+        await RequireAsync(directory, "git", CancellationToken.None,
+            "check-ignore", "--quiet", "--", userFileName);
+    }
+
     private string GetRepositoryName(string projectPath)
     {
         string owner = handler.Owner;
